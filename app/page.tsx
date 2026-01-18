@@ -103,8 +103,9 @@ export default function HomePage() {
           pointerEvents: "none",
         }}
       >
-        debug: videos={videos.length}
-        {videos[0] ? ` / first.status=${videos[0].status}` : ""}
+       debug: videos={videos.length}
+       {" / url=" + (process.env.NEXT_PUBLIC_SUPABASE_URL ?? "undefined")}
+
       </div>
 
       {/* ✅ エラー表示（原因特定用） */}
