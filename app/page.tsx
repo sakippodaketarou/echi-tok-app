@@ -15,209 +15,220 @@ type Video = {
   rejection_reason: string | null;
 };
 
-export default function AdminPage() {
-  const [password, setPassword] = useState("");
-  const [authed, setAuthed] = useState(false);
-
+export default function HomePage() {
   const [videos, setVideos] = useState<Video[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [errorText, setErrorText] = useState<string | null>(null);
 
-  // ここはあなたが以前設定した “管理者パスワード” に合わせます
-  // Vercel の環境変数 ADMIN_PASSWORD を使っている場合は、次の1行でOK
-  const ADMIN_PASSWORD = process.env.NEXT_PUBLIC_ADMIN_PASSWORD || "";
-
-  const login = () => {
-    // もし環境変数で管理していない場合は、ここに直書きでもOK
-    // const ADMIN_PASSWORD = "あなたの管理者パスワード";
-    if (!ADMIN_PASSWORD) {
-      alert(
-        "管理者パスワード(環境変数 NEXT_PUBLIC_ADMIN_PASSWORD) が未設定です。"
-      );
-      return;
-    }
-    if (password === ADMIN_PASSWORD) {
-      setAuthed(true);
-    } else {
-      alert("パスワードが違います。");
-    }
-  };
-
-  const loadPending = async () => {
-    setLoading(true);
-    setErrorText(null);
-
-    // 接続先が正しいか確認するため、URL も表示できるようにする
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-
-    try {
-      const { data, error } = await supabase
-        .from("videos")
-        .select("*")
-        .eq("status", "pending")
-        .order("created_at", { ascending: false });
-
-      if (error) {
-        console.error("Supabase error:", error);
-        setErrorText(
-          `Supabaseエラー: ${error.message}\n(code: ${error.code ?? "n/a"})\nurl: ${
-            supabaseUrl ?? "undefined"
-          }`
-        );
-        setVideos([]);
-      } else {
-        setVideos((data ?? []) as Video[]);
-      }
-    } catch (e: any) {
-      console.error("Fetch failed:", e);
-      setErrorText(`Fetch失敗: ${String(e?.message ?? e)}\nurl: ${supabaseUrl}`);
-      setVideos([]);
-    }
-
-    setLoading(false);
-  };
-
   useEffect(() => {
-    if (authed) {
-      loadPending();
-    }
-  }, [authed]);
+    const load = async () => {
+      setLoading(true);
+      setErrorText(null);
 
-  if (!authed) {
-    return (
-      <main
-        style={{
-          minHeight: "100vh",
-          background: "#000",
-          color: "#fff",
-          display: "grid",
-          placeItems: "center",
-          padding: 24,
-        }}
-      >
-        <div
-          style={{
-            width: "min(420px, 92vw)",
-            background: "rgba(255,255,255,0.06)",
-            border: "1px solid rgba(255,255,255,0.12)",
-            borderRadius: 12,
-            padding: 16,
-          }}
-        >
-          <h1 style={{ margin: "0 0 10px 0", fontSize: 18 }}>管理者ログイン</h1>
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="管理者パスワード"
-            style={{
-              width: "100%",
-              padding: "10px 12px",
-              borderRadius: 8,
-              border: "1px solid rgba(255,255,255,0.18)",
-              background: "rgba(0,0,0,0.5)",
-              color: "#fff",
-              outline: "none",
-            }}
-          />
-          <button
-            onClick={login}
-            style={{
-              width: "100%",
-              marginTop: 12,
-              padding: "10px 12px",
-              borderRadius: 8,
-              border: "none",
-              background: "#00c853",
-              color: "#000",
-              fontWeight: "bold",
-              cursor: "pointer",
-            }}
-          >
-            ログイン
-          </button>
-          <p style={{ marginTop: 10, opacity: 0.7, fontSize: 12 }}>
-            ※この画面はデバッグ用に差し替えています
-          </p>
-        </div>
-      </main>
-    );
-  }
+      try {
+        const { data, error } = await supabase
+          .from("videos")
+          .select("*")
+          .eq("status", "approved")
+          .order("created_at", { ascending: false });
+
+        if (error) {
+          console.error("Supabase error:", error);
+          setErrorText(
+            `Supabaseエラー: ${error.message}\n(code: ${error.code ?? "n/a"})`
+          );
+          setVideos([]);
+        } else {
+          setVideos((data ?? []) as Video[]);
+        }
+      } catch (e: any) {
+        console.error("Fetch failed:", e);
+        setErrorText(`Fetch失敗: ${String(e?.message ?? e)}`);
+        setVideos([]);
+      }
+
+      setLoading(false);
+    };
+
+    load();
+  }, []);
 
   return (
     <main
       style={{
+        margin: 0,
+        padding: 0,
         minHeight: "100vh",
         background: "#000",
         color: "#fff",
-        padding: "20px 16px",
+        fontFamily:
+          'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+        overflow: "hidden",
       }}
     >
-      <header style={{ marginBottom: 12 }}>
-        <h1 style={{ margin: 0, fontSize: 22, fontWeight: "bold" }}>
-          管理画面：承認待ち動画（pending）
-        </h1>
-        <p style={{ margin: "8px 0 0 0", opacity: 0.8, fontSize: 13 }}>
-          pending の動画だけ表示します
-        </p>
+      {/* ヘッダー */}
+      <header
+        style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          right: 0,
+          height: 56,
+          display: "flex",
+          alignItems: "center",
+          padding: "0 16px",
+          background:
+            "linear-gradient(to bottom, rgba(0,0,0,0.9), rgba(0,0,0,0))",
+          zIndex: 1000,
+        }}
+      >
+        <h1 style={{ fontSize: 20, fontWeight: "bold", margin: 0 }}>Echi.tok</h1>
+        <span style={{ fontSize: 12, opacity: 0.8, marginLeft: 8 }}>
+          承認済みサンプル動画フィード
+        </span>
       </header>
 
+      {/* ✅ 取得件数デバッグ（必ず表示されます） */}
+      <div
+        style={{
+          position: "fixed",
+          top: 58,
+          left: 16,
+          zIndex: 1500,
+          padding: "6px 10px",
+          borderRadius: 8,
+          background: "rgba(255,255,255,0.08)",
+          border: "1px solid rgba(255,255,255,0.15)",
+          fontSize: 12,
+          color: "#fff",
+          pointerEvents: "none",
+        }}
+      >
+        debug: videos={videos.length}
+        {videos[0] ? ` / first.status=${videos[0].status}` : ""}
+      </div>
+
+      {/* ✅ エラー表示（原因特定用） */}
       {errorText && (
         <div
           style={{
+            position: "fixed",
+            top: 96,
+            left: 16,
+            right: 16,
+            zIndex: 2000,
             background: "rgba(255,0,0,0.15)",
             border: "1px solid rgba(255,0,0,0.45)",
             padding: 12,
             borderRadius: 8,
             whiteSpace: "pre-wrap",
             fontSize: 12,
-            marginBottom: 12,
           }}
         >
           {errorText}
+          <div style={{ opacity: 0.8, marginTop: 6 }}>
+            （この赤い表示は原因特定のための一時表示です）
+          </div>
         </div>
       )}
 
-      <button
-        onClick={loadPending}
+      {/* 縦方向に1画面ずつスクロール */}
+      <div
         style={{
-          padding: "8px 12px",
-          borderRadius: 8,
-          border: "1px solid rgba(255,255,255,0.2)",
-          background: "rgba(255,255,255,0.08)",
-          color: "#fff",
-          cursor: "pointer",
-          marginBottom: 12,
+          position: "relative",
+          height: "100vh",
+          overflowY: "scroll",
+          scrollSnapType: "y mandatory",
+          scrollBehavior: "smooth",
         }}
       >
-        再読み込み
-      </button>
-
-      {loading && <p style={{ opacity: 0.8 }}>読み込み中…</p>}
-
-      {!loading && videos.length === 0 && !errorText && (
-        <p style={{ opacity: 0.8 }}>承認待ち動画はありません。</p>
-      )}
-
-      <div style={{ display: "grid", gap: 12 }}>
-        {videos.map((v) => (
-          <div
-            key={v.id}
+        {/* ローディング */}
+        {loading && (
+          <section
             style={{
-              border: "1px solid rgba(255,255,255,0.12)",
-              borderRadius: 12,
-              padding: 12,
-              background: "rgba(255,255,255,0.04)",
+              height: "100vh",
+              scrollSnapAlign: "start",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 16,
+              opacity: 0.8,
             }}
           >
-            <div style={{ fontWeight: "bold" }}>{v.title}</div>
-            <div style={{ fontSize: 12, opacity: 0.85, marginTop: 4 }}>
-              @{v.creator_name} / {v.genre ?? "-"} / status: {v.status}
+            読み込み中です…
+          </section>
+        )}
+
+        {/* 動画がない場合 */}
+        {!loading && videos.length === 0 && !errorText && (
+          <section
+            style={{
+              height: "100vh",
+              scrollSnapAlign: "start",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 16,
+              opacity: 0.85,
+              padding: "0 24px",
+              textAlign: "center",
+            }}
+          >
+            <p style={{ marginBottom: 8 }}>まだ承認済み動画がありません。</p>
+            <p style={{ fontSize: 13, opacity: 0.7 }}>
+              クリエイターからの申請を承認すると、ここに表示されます。
+            </p>
+          </section>
+        )}
+
+        {/* 承認済み動画 */}
+        {videos.map((video, index) => (
+          <section
+            key={video.id}
+            style={{
+              position: "relative",
+              height: "100vh",
+              scrollSnapAlign: "start",
+              background: "#000",
+            }}
+          >
+            <iframe
+              src={video.video_url}
+              title={video.title}
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+              allowFullScreen
+              style={{
+                width: "100%",
+                height: "100%",
+                border: "none",
+              }}
+            />
+
+            {/* 下部情報 */}
+            <div
+              style={{
+                position: "absolute",
+                left: 0,
+                right: 0,
+                bottom: 0,
+                padding: 16,
+                background: "linear-gradient(transparent, rgba(0,0,0,0.9))",
+              }}
+            >
+              <p style={{ fontSize: 18, fontWeight: "bold", margin: 0 }}>
+                {video.title}
+              </p>
+              <p style={{ fontSize: 13, margin: 0, opacity: 0.9 }}>
+                @{video.creator_name}
+                {video.genre ? ` ｜ ジャンル：${video.genre}` : ""}
+                {` ｜ status: ${video.status}`}
+              </p>
+              <p style={{ fontSize: 11, margin: "6px 0 0 0", opacity: 0.7 }}>
+                slide {index + 1} / {videos.length}
+              </p>
             </div>
-            <div style={{ fontSize: 12, opacity: 0.7, marginTop: 4 }}>
-              id: {v.id}
-            </div>
-          </div>
+          </section>
         ))}
       </div>
     </main>
