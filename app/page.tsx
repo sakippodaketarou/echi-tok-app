@@ -29,7 +29,6 @@ export default function HomePage() {
         const { data, error } = await supabase
           .from("videos")
           .select("*")
-          .eq("status", "approved")
           .order("created_at", { ascending: false });
 
         if (error) {
