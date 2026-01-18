@@ -18,10 +18,13 @@ type Video = {
 export default function HomePage() {
   const [videos, setVideos] = useState<Video[]>([]);
   const [loading, setLoading] = useState(true);
+  const [errorText, setErrorText] = useState<string | null>(null);
 
-  // 承認済み（approved）の動画だけ取得
   useEffect(() => {
     const load = async () => {
+      setLoading(true);
+      setErrorText(null);
+
       const { data, error } = await supabase
         .from("videos")
         .select("*")
@@ -29,10 +32,15 @@ export default function HomePage() {
         .order("created_at", { ascending: false });
 
       if (error) {
-        console.error(error);
+        console.error("Supabase error:", error);
+        setErrorText(
+          `Supabaseエラー: ${error.message}\n(code: ${error.code ?? "n/a"})`
+        );
+        setVideos([]);
       } else {
         setVideos((data ?? []) as Video[]);
       }
+
       setLoading(false);
     };
 
@@ -52,7 +60,7 @@ export default function HomePage() {
         overflow: "hidden",
       }}
     >
-      {/* 画面上部にタイトルバー */}
+      {/* ヘッダー */}
       <header
         style={{
           position: "fixed",
@@ -68,27 +76,39 @@ export default function HomePage() {
           zIndex: 1000,
         }}
       >
-        <h1
-          style={{
-            fontSize: "20px",
-            fontWeight: "bold",
-            margin: 0,
-          }}
-        >
+        <h1 style={{ fontSize: "20px", fontWeight: "bold", margin: 0 }}>
           Echi.tok
         </h1>
-        <span
-          style={{
-            fontSize: "12px",
-            opacity: 0.8,
-            marginLeft: "8px",
-          }}
-        >
+        <span style={{ fontSize: "12px", opacity: 0.8, marginLeft: "8px" }}>
           承認済みサンプル動画フィード
         </span>
       </header>
 
-      {/* 縦方向に1画面ずつスクロールするコンテナ */}
+      {/* ★エラー表示（原因特定用） */}
+      {errorText && (
+        <div
+          style={{
+            position: "fixed",
+            top: 62,
+            left: 16,
+            right: 16,
+            zIndex: 2000,
+            background: "rgba(255,0,0,0.15)",
+            border: "1px solid rgba(255,0,0,0.45)",
+            padding: "12px",
+            borderRadius: "8px",
+            whiteSpace: "pre-wrap",
+            fontSize: "12px",
+          }}
+        >
+          {errorText}
+          <div style={{ opacity: 0.8, marginTop: 6 }}>
+            （この赤い表示は原因特定のための一時表示です）
+          </div>
+        </div>
+      )}
+
+      {/* 縦方向に1画面ずつスクロール */}
       <div
         style={{
           position: "relative",
@@ -115,8 +135,8 @@ export default function HomePage() {
           </section>
         )}
 
-        {/* 承認済み動画がまだ無い場合 */}
-        {!loading && videos.length === 0 && (
+        {/* 動画がない場合 */}
+        {!loading && videos.length === 0 && !errorText && (
           <section
             style={{
               height: "100vh",
@@ -126,7 +146,7 @@ export default function HomePage() {
               alignItems: "center",
               justifyContent: "center",
               fontSize: "16px",
-              opacity: 0.8,
+              opacity: 0.85,
               padding: "0 24px",
               textAlign: "center",
             }}
@@ -138,7 +158,7 @@ export default function HomePage() {
           </section>
         )}
 
-        {/* 承認済み動画を1枚ずつスライドとして表示 */}
+        {/* 承認済み動画を表示 */}
         {videos.map((video, index) => (
           <section
             key={video.id}
@@ -149,7 +169,6 @@ export default function HomePage() {
               background: "#000",
             }}
           >
-            {/* 動画本体（YouTube埋め込みなど） */}
             <iframe
               src={video.video_url}
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
@@ -159,11 +178,9 @@ export default function HomePage() {
                 width: "100%",
                 height: "100%",
                 border: "none",
-                objectFit: "cover",
               }}
-            ></iframe>
+            />
 
-            {/* 下部のオーバーレイ情報 */}
             <div
               style={{
                 position: "absolute",
@@ -175,38 +192,14 @@ export default function HomePage() {
                   "linear-gradient(transparent, rgba(0,0,0,0.9))",
               }}
             >
-              <p
-                style={{
-                  fontSize: "18px",
-                  fontWeight: "bold",
-                  margin: "0 0 4px 0",
-                }}
-              >
+              <p style={{ fontSize: "18px", fontWeight: "bold", margin: 0 }}>
                 {video.title}
               </p>
-
-              <p
-                style={{
-                  fontSize: "13px",
-                  margin: 0,
-                  opacity: 0.9,
-                }}
-              >
-                @{video.creator_name}{" "}
-                {video.genre && (
-                  <>
-                    ｜ ジャンル：{video.genre}
-                  </>
-                )}
+              <p style={{ fontSize: "13px", margin: 0, opacity: 0.9 }}>
+                @{video.creator_name}
+                {video.genre ? ` ｜ ジャンル：${video.genre}` : ""}
               </p>
-
-              <p
-                style={{
-                  fontSize: "11px",
-                  margin: "6px 0 0 0",
-                  opacity: 0.7,
-                }}
-              >
+              <p style={{ fontSize: "11px", margin: "6px 0 0 0", opacity: 0.7 }}>
                 slide {index + 1} / {videos.length}
               </p>
             </div>
