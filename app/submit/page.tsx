@@ -1,66 +1,79 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { supabase } from "@/lib/supabaseClient";
+import React, { useEffect, useMemo, useState } from "react";
+import { createClient } from "@supabase/supabase-js";
 
+/**
+ * ✅ このページは「未ログインでも投稿申請できる」想定
+ * - genres / genre_categories を読み込み
+ * - カテゴリタブで絞り込み表示
+ * - ジャンル複数選択
+ * - videos に INSERT（status='pending' 固定）
+ *
+ * ※ あなたのDBカラム名に合わせて下の INSERT 部分だけ微調整してね
+ */
+
+// Supabase client（クライアント側：NEXT_PUBLIC を使う）
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
+
+// ===== Types（必要最低限）=====
 type GenreCategory = {
   id: number;
-  slug: string;
   name: string;
   sort_order: number | null;
 };
 
 type Genre = {
   id: number;
-  category_id: number;
-  slug: string;
   name: string;
-  is_active: boolean;
   sort_order: number | null;
+  is_active: boolean | null;
+  // ✅ ここがポイント：ジャンル→カテゴリの外部キー
+  genre_category_id: number | null;
 };
 
 export default function SubmitPage() {
-  // フォーム
+  // 入力フォーム
   const [creatorName, setCreatorName] = useState("@test_creator2");
-  const [creatorEmail, setCreatorEmail] = useState<string>("");
-  const [title, setTitle] = useState<string>("");
-  const [videoUrl, setVideoUrl] = useState<string>("");
-  const [note, setNote] = useState<string>("");
+  const [email, setEmail] = useState("");
+  const [title, setTitle] = useState("");
+  const [videoUrl, setVideoUrl] = useState("");
+  const [memo, setMemo] = useState("");
 
-  // ジャンル（DBから取得）
+  // カテゴリ/ジャンル
   const [categories, setCategories] = useState<GenreCategory[]>([]);
   const [genres, setGenres] = useState<Genre[]>([]);
   const [activeCatId, setActiveCatId] = useState<number | null>(null);
 
-  // 選択中ジャンル（複数）
-  const [selectedGenreIds, setSelectedGenreIds] = useState<Set<number>>(
-    () => new Set()
-  );
+  // ジャンル選択（Setで管理）
+  const [selectedGenreIds, setSelectedGenreIds] = useState<Set<number>>(new Set());
 
-  // UI状態
-  const [loading, setLoading] = useState(false);
+  // メッセージ
   const [msg, setMsg] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
 
-  // YouTube通常URL → embed変換（入力補助）
-  const toYouTubeEmbed = (url: string) => {
-    const u = url.trim();
+  // YouTube URL → embed URL 変換
+  const toYoutubeEmbed = (u: string) => {
+    if (!u) return u;
 
-    if (u.includes("youtube.com/embed/")) return u;
-
+    // youtu.be/xxxxx
     const m1 = u.match(/youtu\.be\/([a-zA-Z0-9_-]{6,})/);
-    if (m1?.[1]) {
-      return `https://www.youtube.com/embed/${m1[1]}?autoplay=1&mute=1`;
-    }
+    if (m1?.[1]) return `https://www.youtube.com/embed/${m1[1]}?autoplay=0&mute=0`;
 
+    // youtube.com/watch?v=xxxxx or ?v=xxxxx
     const m2 = u.match(/[?&]v=([a-zA-Z0-9_-]{6,})/);
-    if (m2?.[1]) {
-      return `https://www.youtube.com/embed/${m2[1]}?autoplay=1&mute=1`;
-    }
+    if (m2?.[1]) return `https://www.youtube.com/embed/${m2[1]}?autoplay=0&mute=0`;
+
+    // すでに embed っぽい
+    if (u.includes("youtube.com/embed/")) return u;
 
     return u;
   };
 
-  // ① カテゴリ＋ジャンルをDBから読み込み
+  // 初期ロード：カテゴリ & ジャンル
   useEffect(() => {
     const load = async () => {
       setMsg(null);
@@ -72,7 +85,7 @@ export default function SubmitPage() {
         .order("sort_order", { ascending: true });
 
       if (catRes.error) {
-        setMsg(`カテゴリ取得エラー: ${catRes.error.message}`);
+        setMsg(`カテゴリ取得エラー：${catRes.error.message}`);
         return;
       }
 
@@ -88,20 +101,24 @@ export default function SubmitPage() {
         .order("sort_order", { ascending: true });
 
       if (genRes.error) {
-        setMsg(`ジャンル取得エラー: ${genRes.error.message}`);
+        setMsg(`ジャンル取得エラー：${genRes.error.message}`);
         return;
       }
 
-      setGenres((genRes.data ?? []) as Genre[]);
+      const gs = (genRes.data ?? []) as Genre[];
+      setGenres(gs);
+
+      // デバッグしたい時はこれ
+      // console.log("genre sample:", gs[0]);
     };
 
     load();
   }, []);
 
-  // アクティブカテゴリのジャンルだけ表示
+  // アクティブカテゴリのジャンルだけ表示（✅ここが修正済み）
   const visibleGenres = useMemo(() => {
     if (!activeCatId) return [];
-    return genres.filter((g) => g.category_id === activeCatId);
+    return genres.filter((g) => String(g.genre_category_id) === String(activeCatId));
   }, [genres, activeCatId]);
 
   // 選択されているジャンル名一覧（プレビュー用）
@@ -129,200 +146,146 @@ export default function SubmitPage() {
     e.preventDefault();
     setMsg(null);
 
+    // ✅ ここで「呼ばれてるか」確認したい時はON
+    // console.log("handleSubmit called");
+
     const cn = creatorName.trim();
-    const t = title.trim();
-    const v = toYouTubeEmbed(videoUrl);
+    const tt = title.trim();
+    const vu = videoUrl.trim();
 
-    if (!cn) return setMsg("クリエイター名を入力してください。");
-    if (!t) return setMsg("動画タイトルを入力してください。");
-    if (!v) return setMsg("動画URLを入力してください。");
+    // 必須チェック（必要なら条件を変えてOK）
+    if (!cn) return setMsg("クリエイター名（必須）を入力してください。");
+    if (!tt) return setMsg("動画タイトル（必須）を入力してください。");
+    if (!vu) return setMsg("動画URL（必須）を入力してください。");
 
-    setLoading(true);
+    const embedUrl = toYoutubeEmbed(vu);
 
-    // 1) videos に insert（pending）
-    const insertVideo = await supabase
-      .from("videos")
-      .insert([
-        {
-          creator_name: cn,
-          creator_email: creatorEmail.trim() || null,
-          title: t,
-          video_url: v,
-          status: "pending",
-          // genre列（旧）: 代表ジャンルが必要ならここに入れる（今回はnullでOK）
-          genre: null,
-        },
-      ])
-      .select("id")
-      .single();
+    setSending(true);
+    try {
+      /**
+       * ✅ 重要：RLSで WITH CHECK (status='pending') を入れたので
+       * INSERT に必ず status: 'pending' を含める
+       *
+       * ※ 下のカラム名はあなたの videos テーブルに合わせて調整してね
+       * 例：creator_name / creator / creator_handle など
+       */
+      const insertPayload: any = {
+        creator_name: cn, // ← videos のカラム名に合わせる
+        email: email.trim() || null, // 任意
+        title: tt,
+        video_url: vu,
+        embed_url: embedUrl,
+        memo: memo.trim() || null,
+        status: "pending", // ✅これが無いとRLSで落ちる
+      };
 
-    if (insertVideo.error) {
-      setMsg(`送信に失敗しました：${insertVideo.error.message}`);
-      setLoading(false);
-      return;
-    }
+      const ins = await supabase.from("videos").insert(insertPayload).select("id").single();
 
-    const videoId = insertVideo.data.id as string;
-
-    // 2) video_genres に複数 insert
-    const ids = Array.from(selectedGenreIds);
-    if (ids.length > 0) {
-      const rows = ids.map((genre_id) => ({
-        video_id: videoId,
-        genre_id,
-      }));
-
-      const insertVG = await supabase.from("video_genres").insert(rows);
-
-      if (insertVG.error) {
-        // videosは作られているので、ジャンル付与だけ失敗
-        setMsg(
-          `動画は作成されましたが、ジャンル付与に失敗しました：${insertVG.error.message}`
-        );
-        setLoading(false);
+      if (ins.error) {
+        // ここが例の「new row violates row-level security policy ...」になる場所
+        setMsg(`送信に失敗しました：${ins.error.message}`);
         return;
       }
+
+      const videoId = ins.data?.id;
+
+      /**
+       * ✅ もし中間テーブルで genres を紐づけてるならここでINSERT
+       * - テーブル名が違うなら変更（例: video_genres / videos_genres / video_genre_links）
+       * - カラム名も合わせる（video_id, genre_id）
+       *
+       * 中間テーブルが無い運用なら、このブロックは丸ごと削除してOK
+       */
+      if (videoId && selectedGenreIds.size > 0) {
+        const rows = Array.from(selectedGenreIds).map((gid) => ({
+          video_id: videoId,
+          genre_id: gid,
+        }));
+
+        const linkRes = await supabase.from("video_genres").insert(rows);
+        if (linkRes.error) {
+          // videos は作れてるので致命的ではないが、紐づけが失敗
+          setMsg(
+            `申請は作成できましたが、ジャンル紐づけに失敗しました：${linkRes.error.message}`
+          );
+          return;
+        }
+      }
+
+      setMsg("申請を送信しました！管理者の承認をお待ちください。");
+
+      // 送信後の初期化（必要なら調整）
+      setTitle("");
+      setVideoUrl("");
+      setMemo("");
+      clearSelected();
+    } finally {
+      setSending(false);
     }
-
-    setMsg("送信しました！管理者の承認後に公開されます。");
-
-    // reset
-    setTitle("");
-    setVideoUrl("");
-    setNote("");
-    clearSelected();
-
-    setLoading(false);
   };
 
   return (
-    <main
+    <div
       style={{
         minHeight: "100vh",
-        background: "#000",
+        background: "#0b0b0b",
         color: "#fff",
-        display: "grid",
-        placeItems: "center",
+        display: "flex",
+        justifyContent: "center",
         padding: 24,
-        fontFamily:
-          'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
       }}
     >
-      <form
-        onSubmit={handleSubmit}
+      <div
         style={{
-          width: "min(760px, 94vw)",
-          background: "rgba(255,255,255,0.06)",
-          border: "1px solid rgba(255,255,255,0.12)",
+          width: "100%",
+          maxWidth: 760,
+          background: "rgba(255,255,255,0.04)",
+          border: "1px solid rgba(255,255,255,0.10)",
           borderRadius: 16,
-          padding: 18,
+          padding: 20,
         }}
       >
-        <h1 style={{ margin: "0 0 10px 0", fontSize: 20 }}>
-          クリエイター動画申請フォーム
-        </h1>
-        <p style={{ margin: "0 0 16px 0", fontSize: 12, opacity: 0.8 }}>
+        <h1 style={{ fontSize: 22, margin: "0 0 6px" }}>クリエイター動画申請フォーム</h1>
+        <p style={{ margin: "0 0 18px", color: "rgba(255,255,255,0.75)", lineHeight: 1.6 }}>
           Echi.tok に掲載したいサンプル動画の情報を入力してください。管理者が内容を確認し、承認された動画のみ公開されます。
         </p>
 
-        {/* クリエイター名 */}
-        <label style={{ display: "block", marginTop: 10, fontSize: 13 }}>
-          クリエイター名（必須）
-        </label>
-        <input
-          value={creatorName}
-          onChange={(e) => setCreatorName(e.target.value)}
-          style={{
-            width: "100%",
-            marginTop: 6,
-            padding: "10px 12px",
-            borderRadius: 10,
-            border: "1px solid rgba(255,255,255,0.18)",
-            background: "rgba(0,0,0,0.55)",
-            color: "#fff",
-            outline: "none",
-          }}
-        />
+        <form onSubmit={handleSubmit}>
+          {/* クリエイター名 */}
+          <label style={{ display: "block", marginBottom: 6 }}>クリエイター名（必須）</label>
+          <input
+            value={creatorName}
+            onChange={(e) => setCreatorName(e.target.value)}
+            style={inputStyle}
+            placeholder="@creator"
+          />
 
-        {/* メール */}
-        <label style={{ display: "block", marginTop: 12, fontSize: 13 }}>
-          メールアドレス（任意）
-        </label>
-        <input
-          value={creatorEmail}
-          onChange={(e) => setCreatorEmail(e.target.value)}
-          style={{
-            width: "100%",
-            marginTop: 6,
-            padding: "10px 12px",
-            borderRadius: 10,
-            border: "1px solid rgba(255,255,255,0.18)",
-            background: "rgba(0,0,0,0.55)",
-            color: "#fff",
-            outline: "none",
-          }}
-        />
+          {/* メール */}
+          <label style={{ display: "block", margin: "14px 0 6px" }}>メールアドレス（任意）</label>
+          <input
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            style={inputStyle}
+            placeholder="example@mail.com"
+          />
 
-        {/* タイトル */}
-        <label style={{ display: "block", marginTop: 12, fontSize: 13 }}>
-          動画タイトル（必須）
-        </label>
-        <input
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          style={{
-            width: "100%",
-            marginTop: 6,
-            padding: "10px 12px",
-            borderRadius: 10,
-            border: "1px solid rgba(255,255,255,0.18)",
-            background: "rgba(0,0,0,0.55)",
-            color: "#fff",
-            outline: "none",
-          }}
-        />
+          {/* タイトル */}
+          <label style={{ display: "block", margin: "14px 0 6px" }}>動画タイトル（必須）</label>
+          <input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            style={inputStyle}
+            placeholder="タイトル"
+          />
 
-        {/* ✅ ジャンル（カテゴリタブ＋複数チップ） */}
-        <div style={{ marginTop: 14 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ fontSize: 13, fontWeight: "bold" }}>
-              ジャンル（複数選択OK）
-            </div>
-
-            <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-              <div style={{ fontSize: 12, opacity: 0.75, alignSelf: "center" }}>
-                選択中：{selectedGenreIds.size}件
-              </div>
-              {selectedGenreIds.size > 0 && (
-                <button
-                  type="button"
-                  onClick={clearSelected}
-                  style={{
-                    fontSize: 12,
-                    padding: "6px 10px",
-                    borderRadius: 999,
-                    border: "1px solid rgba(255,255,255,0.2)",
-                    background: "rgba(255,255,255,0.06)",
-                    color: "#fff",
-                    cursor: "pointer",
-                  }}
-                >
-                  全解除
-                </button>
-              )}
-            </div>
+          {/* ジャンル */}
+          <div style={{ display: "flex", justifyContent: "space-between", marginTop: 18 }}>
+            <label style={{ display: "block", marginBottom: 6 }}>ジャンル（複数選択OK）</label>
+            <div style={{ color: "rgba(255,255,255,0.7)" }}>選択中：{selectedGenreIds.size}件</div>
           </div>
 
           {/* カテゴリタブ */}
-          <div
-            style={{
-              marginTop: 10,
-              display: "flex",
-              gap: 8,
-              overflowX: "auto",
-              paddingBottom: 8,
-            }}
-          >
+          <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 8 }}>
             {categories.map((c) => {
               const active = c.id === activeCatId;
               return (
@@ -331,19 +294,13 @@ export default function SubmitPage() {
                   type="button"
                   onClick={() => setActiveCatId(c.id)}
                   style={{
-                    whiteSpace: "nowrap",
                     padding: "8px 12px",
                     borderRadius: 999,
-                    border: active
-                      ? "1px solid rgba(0,200,83,0.9)"
-                      : "1px solid rgba(255,255,255,0.18)",
-                    background: active
-                      ? "rgba(0,200,83,0.18)"
-                      : "rgba(255,255,255,0.06)",
+                    border: active ? "1px solid rgba(0,200,83,0.9)" : "1px solid rgba(255,255,255,0.18)",
+                    background: active ? "rgba(0,200,83,0.18)" : "rgba(255,255,255,0.06)",
                     color: "#fff",
                     cursor: "pointer",
-                    fontSize: 13,
-                    fontWeight: active ? "bold" : "normal",
+                    whiteSpace: "nowrap",
                   }}
                 >
                   {c.name}
@@ -353,14 +310,7 @@ export default function SubmitPage() {
           </div>
 
           {/* ジャンルチップ */}
-          <div
-            style={{
-              display: "flex",
-              flexWrap: "wrap",
-              gap: 8,
-              marginTop: 6,
-            }}
-          >
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 }}>
             {visibleGenres.map((g) => {
               const active = selectedGenreIds.has(g.id);
               return (
@@ -371,12 +321,8 @@ export default function SubmitPage() {
                   style={{
                     padding: "8px 12px",
                     borderRadius: 999,
-                    border: active
-                      ? "1px solid rgba(0,200,83,0.9)"
-                      : "1px solid rgba(255,255,255,0.18)",
-                    background: active
-                      ? "rgba(0,200,83,0.18)"
-                      : "rgba(255,255,255,0.06)",
+                    border: active ? "1px solid rgba(0,200,83,0.9)" : "1px solid rgba(255,255,255,0.18)",
+                    background: active ? "rgba(0,200,83,0.18)" : "rgba(255,255,255,0.06)",
                     color: "#fff",
                     cursor: "pointer",
                     fontSize: 13,
@@ -389,98 +335,82 @@ export default function SubmitPage() {
             })}
           </div>
 
-          {/* 選択中のプレビュー */}
+          {/* プレビュー（任意） */}
           {selectedNames.length > 0 && (
-            <div style={{ marginTop: 10, fontSize: 12, opacity: 0.85 }}>
+            <div style={{ marginTop: 10, color: "rgba(255,255,255,0.75)", fontSize: 13 }}>
               選択中：{selectedNames.join(" / ")}
             </div>
           )}
-        </div>
 
-        {/* URL */}
-        <label style={{ display: "block", marginTop: 12, fontSize: 13 }}>
-          動画URL（必須：YouTube等）
-        </label>
-        <input
-          value={videoUrl}
-          onChange={(e) => setVideoUrl(e.target.value)}
-          placeholder="https://www.youtube.com/watch?v=XXXX でもOK（自動でembedに変換）"
-          style={{
-            width: "100%",
-            marginTop: 6,
-            padding: "10px 12px",
-            borderRadius: 10,
-            border: "1px solid rgba(255,255,255,0.18)",
-            background: "rgba(0,0,0,0.55)",
-            color: "#fff",
-            outline: "none",
-          }}
-        />
-        <div style={{ marginTop: 6, fontSize: 12, opacity: 0.7 }}>
-          通常の YouTube URL でも OK（自動で embed 形式へ変換します）
-        </div>
+          {/* 動画URL */}
+          <label style={{ display: "block", margin: "16px 0 6px" }}>動画URL（必須：YouTube等）</label>
+          <input
+            value={videoUrl}
+            onChange={(e) => setVideoUrl(e.target.value)}
+            style={inputStyle}
+            placeholder="https://youtu.be/..."
+          />
+          <div style={{ marginTop: 6, color: "rgba(255,255,255,0.65)", fontSize: 12 }}>
+            通常の YouTube URL でもOK（自動で embed 形式へ変換します）
+          </div>
 
-        {/* メモ */}
-        <label style={{ display: "block", marginTop: 12, fontSize: 13 }}>
-          メモ（管理者向け・任意）
-        </label>
-        <textarea
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-          placeholder="本編URLや切り抜き箇所など（※いまはDB保存しません）"
-          style={{
-            width: "100%",
-            marginTop: 6,
-            minHeight: 90,
-            padding: "10px 12px",
-            borderRadius: 10,
-            border: "1px solid rgba(255,255,255,0.18)",
-            background: "rgba(0,0,0,0.55)",
-            color: "#fff",
-            outline: "none",
-            resize: "vertical",
-          }}
-        />
+          {/* メモ */}
+          <label style={{ display: "block", margin: "14px 0 6px" }}>メモ（管理者向け・任意）</label>
+          <textarea
+            value={memo}
+            onChange={(e) => setMemo(e.target.value)}
+            style={{ ...inputStyle, height: 120, resize: "vertical" }}
+            placeholder="本編URLや切り抜き箇所など（※いまはDB保存します。保存したくないなら言って！）"
+          />
 
-        {msg && (
-          <div
+          {/* メッセージ */}
+          {msg && (
+            <div
+              style={{
+                marginTop: 14,
+                padding: 12,
+                borderRadius: 10,
+                border: "1px solid rgba(255,80,80,0.35)",
+                background: "rgba(255,0,0,0.12)",
+                color: "#fff",
+              }}
+            >
+              {msg}
+            </div>
+          )}
+
+          {/* 送信ボタン */}
+          <button
+            type="submit"
+            disabled={sending}
             style={{
-              marginTop: 12,
-              background: msg.includes("失敗") || msg.includes("エラー")
-                ? "rgba(255,0,0,0.15)"
-                : "rgba(0,200,83,0.15)",
-              border: msg.includes("失敗") || msg.includes("エラー")
-                ? "1px solid rgba(255,0,0,0.5)"
-                : "1px solid rgba(0,200,83,0.5)",
-              padding: 10,
-              borderRadius: 10,
-              fontSize: 12,
-              whiteSpace: "pre-wrap",
+              marginTop: 16,
+              width: "100%",
+              padding: "14px 12px",
+              borderRadius: 12,
+              border: "none",
+              background: sending ? "rgba(0,200,83,0.35)" : "rgba(0,200,83,0.95)",
+              color: "#000",
+              fontWeight: 800,
+              cursor: sending ? "not-allowed" : "pointer",
             }}
           >
-            {msg}
-          </div>
-        )}
-
-        <button
-          type="submit"
-          disabled={loading}
-          style={{
-            width: "100%",
-            marginTop: 14,
-            padding: "12px 12px",
-            borderRadius: 10,
-            border: "none",
-            background: "#00c853",
-            color: "#000",
-            fontWeight: "bold",
-            cursor: loading ? "not-allowed" : "pointer",
-            opacity: loading ? 0.7 : 1,
-          }}
-        >
-          {loading ? "送信中..." : "申請を送信する"}
-        </button>
-      </form>
-    </main>
+            {sending ? "送信中..." : "申請を送信する"}
+          </button>
+        </form>
+      </div>
+    </div>
   );
 }
+
+// 共通 input style
+const inputStyle: React.CSSProperties = {
+  width: "100%",
+  padding: "12px 12px",
+  borderRadius: 12,
+  border: "1px solid rgba(255,255,255,0.14)",
+  background: "rgba(0,0,0,0.35)",
+  color: "#fff",
+  outline: "none",
+};
+<div style={{ color: "yellow" }}>DEPLOY TEST 123</div>
