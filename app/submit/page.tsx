@@ -413,4 +413,3 @@ const inputStyle: React.CSSProperties = {
   color: "#fff",
   outline: "none",
 };
-<div style={{ color: "yellow" }}>DEPLOY TEST 123</div>
